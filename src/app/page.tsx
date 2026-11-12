@@ -1,1 +1,2 @@
-export default function Home(){return <main><h1>FlexMap</h1><p>Your movement, mapped. / Карта вашей подвижности.</p></main>}
+import App from '@/components/App';
+export default function Page(){return <App/>}

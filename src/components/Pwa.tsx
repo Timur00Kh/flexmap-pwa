@@ -1,9 +1,28 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 type PwaProps = { lang: 'en' | 'ru' };
 type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }> };
+const subscribeOnline = (callback: () => void) => {
+  window.addEventListener('online', callback);
+  window.addEventListener('offline', callback);
+  return () => {
+    window.removeEventListener('online', callback);
+    window.removeEventListener('offline', callback);
+  };
+};
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+const subscribeInstalled = (callback: () => void) => {
+  const media = window.matchMedia('(display-mode: standalone)');
+  media.addEventListener('change', callback);
+  window.addEventListener('appinstalled', callback);
+  return () => {
+    media.removeEventListener('change', callback);
+    window.removeEventListener('appinstalled', callback);
+  };
+};
+const subscribeNever = () => () => undefined;
 
 const copy = {
   en: {
@@ -19,65 +38,61 @@ const copy = {
 } as const;
 
 export default function Pwa({ lang }: PwaProps) {
-  const [online, setOnline] = useState(true);
+  const online = useSyncExternalStore(subscribeOnline, () => navigator.onLine, () => true);
+  const installed = useSyncExternalStore(subscribeInstalled, isStandalone, () => false);
+  const iosHint = useSyncExternalStore(
+    subscribeNever,
+    () => /iphone|ipad|ipod/i.test(navigator.userAgent) && !isStandalone(),
+    () => false,
+  );
   const [ready, setReady] = useState(false);
-  const [installed, setInstalled] = useState(false);
-  const [iosHint, setIosHint] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
   const acceptingUpdate = useRef(false);
   const t = copy[lang];
 
   useEffect(() => {
-    setOnline(navigator.onLine);
-    const onOnline = () => setOnline(true);
-    const onOffline = () => setOnline(false);
-    const onInstalled = () => { setInstalled(true); setInstallPrompt(null); };
+    const onInstalled = () => setInstallPrompt(null);
     const onBeforeInstall = (event: Event) => {
       event.preventDefault();
       setInstallPrompt(event as InstallPromptEvent);
     };
-    const standalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
-    setInstalled(standalone);
-    setIosHint(/iphone|ipad|ipod/i.test(navigator.userAgent) && !standalone);
-    window.addEventListener('online', onOnline);
-    window.addEventListener('offline', onOffline);
     window.addEventListener('appinstalled', onInstalled);
     window.addEventListener('beforeinstallprompt', onBeforeInstall);
 
-    let registration: ServiceWorkerRegistration | undefined;
     let stopped = false;
+    let removeUpdateFoundListener: (() => void) | undefined;
     const onControllerChange = () => {
       setReady(true);
       if (acceptingUpdate.current) window.location.reload();
     };
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/flexmap-pwa/sw.js', { scope: '/flexmap-pwa/' }).then((reg) => {
-        registration = reg;
         if (stopped) return;
         setReady(Boolean(reg.active));
         if (reg.waiting && navigator.serviceWorker.controller) setWaitingWorker(reg.waiting);
-        reg.addEventListener('updatefound', () => {
+        const onUpdateFound = () => {
           const worker = reg.installing;
           if (!worker) return;
           worker.addEventListener('statechange', () => {
             if (worker.state === 'activated') setReady(true);
             if (worker.state === 'installed' && navigator.serviceWorker.controller) setWaitingWorker(worker);
           });
-        });
+        };
+        reg.addEventListener('updatefound', onUpdateFound);
+        removeUpdateFoundListener = () => reg.removeEventListener('updatefound', onUpdateFound);
       }).catch(() => setReady(false));
       navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
     }
 
     return () => {
       stopped = true;
+      removeUpdateFoundListener?.();
       navigator.serviceWorker?.removeEventListener('controllerchange', onControllerChange);
-      window.removeEventListener('online', onOnline);
-      window.removeEventListener('offline', onOffline);
       window.removeEventListener('appinstalled', onInstalled);
       window.removeEventListener('beforeinstallprompt', onBeforeInstall);
     };
-  }, [waitingWorker]);
+  }, []);
 
   const install = async () => {
     if (!installPrompt) return;

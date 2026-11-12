@@ -1,8 +1,11 @@
-/* FlexMap offline shell. Bump CACHE_VERSION when the shell changes. */
-const CACHE_VERSION = 'flexmap-pwa-v1';
+/* postbuild replaces BUILD_HASH with the content hash for this export. */
+const BUILD_HASH = '__BUILD_HASH__';
+const CACHE_VERSION = `flexmap-pwa-v2-${BUILD_HASH}`;
 const SCOPE_URL = new URL('/flexmap-pwa/', self.location.origin);
 const SHELL = [
   new URL('./', SCOPE_URL).href,
+  new URL('en/', SCOPE_URL).href,
+  new URL('ru/', SCOPE_URL).href,
   new URL('manifest.webmanifest', SCOPE_URL).href,
   new URL('icon-192.png', SCOPE_URL).href,
   new URL('icon-512.png', SCOPE_URL).href,
@@ -12,7 +15,18 @@ const MAX_RUNTIME_ENTRIES = 160;
 
 self.addEventListener('install', (event) => {
   // addAll is atomic: a failed shell fetch leaves the previous worker/cache intact.
-  event.waitUntil(caches.open(CACHE_VERSION).then((cache) => cache.addAll(SHELL)));
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_VERSION);
+    const manifestResponse = await fetch(new URL('precache.json', SCOPE_URL), { cache: 'no-store' });
+    if (!manifestResponse.ok) throw new Error(`Precache manifest failed: ${manifestResponse.status}`);
+    const manifest = await manifestResponse.json();
+    if (manifest.version !== BUILD_HASH || !Array.isArray(manifest.assets)) throw new Error('Invalid precache manifest');
+    const assets = [...new Set(manifest.assets.map((assetPath) => new URL(assetPath, SCOPE_URL).href))];
+    if (assets.some((url) => !url.startsWith(SCOPE_URL.href))) throw new Error('Precache asset outside app scope');
+    // Install succeeds only after every shell and JS/CSS asset is stored.
+    // The previous worker remains active if any request fails.
+    await cache.addAll(assets);
+  })());
 });
 
 self.addEventListener('message', (event) => {
@@ -50,7 +64,14 @@ self.addEventListener('fetch', (event) => {
         await cache.put(request, response.clone());
         const keys = await cache.keys();
         if (keys.length > MAX_RUNTIME_ENTRIES) {
-          await Promise.all(keys.slice(0, keys.length - MAX_RUNTIME_ENTRIES).map((key) => cache.delete(key)));
+          const removable = keys.filter((key) => {
+            const keyUrl = new URL(key.url);
+            return !SHELL.includes(key.url) && !keyUrl.pathname.includes('/_next/static/');
+          });
+          const excess = keys.length - MAX_RUNTIME_ENTRIES;
+          if (excess > 0 && removable.length) {
+            await Promise.all(removable.slice(0, excess).map((key) => cache.delete(key)));
+          }
         }
       }
       return response;
@@ -58,7 +79,8 @@ self.addEventListener('fetch', (event) => {
       const hit = await cache.match(request);
       if (hit) return hit;
       if (isNavigation) {
-        const shell = await cache.match(new URL('./', SCOPE_URL).href);
+        const fallback = /\/ru(?:\/|$)/.test(url.pathname) ? SHELL[2] : /\/en(?:\/|$)/.test(url.pathname) ? SHELL[1] : SHELL[0];
+        const shell = await cache.match(fallback);
         if (shell) return shell;
       }
       return new Response('Offline', { status: 503, statusText: 'Offline', headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
