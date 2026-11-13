@@ -1,6 +1,6 @@
 "use client";
 
-import { Canvas, type ThreeEvent } from "@react-three/fiber";
+import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Bvh, OrbitControls, useGLTF } from "@react-three/drei";
 import React, { Suspense, useEffect, useMemo, useState } from "react";
 import * as THREE from "three";
@@ -41,6 +41,7 @@ const MODEL_URL = "/flexmap-pwa/models/ecorche.meshopt.glb";
 type FigureProps = Props & { facing: number; hovered: Group | null; setHovered: (group: Group | null) => void; onReady: () => void };
 function Figure({ scores, selected, onSelect, facing, hovered, setHovered, onReady }: FigureProps) {
   const { scene } = useGLTF(MODEL_URL, false, true);
+  const invalidate = useThree(state => state.invalidate);
   const figure = useMemo(() => {
     // Bake each source node's transform into floating point attributes before
     // merging. The original GLB uses quantized integer coordinates and a root
@@ -110,8 +111,9 @@ function Figure({ scores, selected, onSelect, facing, hovered, setHovered, onRea
       const material = object.material as THREE.MeshStandardMaterial;
       if (object.userData.layer !== "skeleton") material.color.set(colorFor(group, group ? scores[group] : undefined, !!group && (group === selected || group === hovered)));
     });
-  }, [figure, scores, selected, hovered]);
-  useEffect(() => { onReady(); }, [onReady]);
+    invalidate();
+  }, [figure, scores, selected, hovered, invalidate]);
+  useEffect(() => { onReady(); invalidate(); }, [onReady, invalidate]);
   useEffect(() => () => {
     figure.traverse(object => {
       if (object instanceof THREE.Mesh) { object.geometry.dispose(); (object.material as THREE.Material).dispose(); }
@@ -151,7 +153,7 @@ export default function Anatomy(props: Props) {
       <button type="button" onClick={() => setBack(false)} aria-pressed={!back} style={buttonStyle(!back)}>{props.lang === "ru" ? "Спереди" : "Front"}</button>
       <button type="button" onClick={() => setBack(true)} aria-pressed={back} style={buttonStyle(back)}>{props.lang === "ru" ? "Сзади" : "Back"}</button>
     </div>
-    <WebGLErrorBoundary lang={props.lang}><Canvas aria-label={props.lang === "ru" ? "3D модель человека, вращайте и выбирайте группу мышц" : "3D human model, rotate and select a muscle group"} camera={{ position: [0, 0, 3.3], fov: 38 }} dpr={[1, 1.5]} gl={{ antialias: true, alpha: true }}>
+    <WebGLErrorBoundary lang={props.lang}><Canvas frameloop="demand" aria-label={props.lang === "ru" ? "3D модель человека, вращайте и выбирайте группу мышц" : "3D human model, rotate and select a muscle group"} camera={{ position: [0, 0, 3.3], fov: 38 }} dpr={[1, 1.5]} gl={{ antialias: true, alpha: true }}>
       <color attach="background" args={["#f7f6f3"]} />
       <ambientLight intensity={.5} />
       <directionalLight position={[3, 5, 5]} intensity={2.4} />
