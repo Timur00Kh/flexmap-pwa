@@ -57,7 +57,6 @@ async function openCheck(page:Page,name:string){
 }
 async function choose(page:Page,level:number){
  await page.getByRole('dialog').getByRole('button',{name:new RegExp(`^Level ${level}:`)}).click();
- await page.getByLabel('I can hold this position without pain or compensation.').check();
 }
 
 test('starts with two clear sections and preserves RU/EN static routes',async({page},info)=>{
@@ -85,13 +84,14 @@ test('keeps safe side selection, retakes, history, backups and scores',async({pa
  const left=dialog.getByRole('button',{name:'Save & check right side',exact:true});
  await expect(left).toBeDisabled();
  await dialog.getByRole('button',{name:/^Level 3:/}).click();
- await expect(left).toBeDisabled();
- await page.getByLabel('I can hold this position without pain or compensation.').check();
+ await expect(left).toBeEnabled();
+ await expect(dialog.getByRole('checkbox')).toHaveCount(0);
  await left.click();
  await expect(dialog.getByRole('button',{name:'Right',exact:true})).toHaveAttribute('aria-pressed','true');
  await choose(page,3);
- await dialog.getByRole('button',{name:'Save result',exact:true}).click();
- await expect(dialog.getByRole('button',{name:'Try the next movement'})).toBeVisible();
+ await dialog.getByRole('button',{name:/^Save & (continue|finish)$/}).click();
+ await expect(dialog.getByRole('heading',{name:'Neck nod',exact:true})).toBeVisible();
+ await expect(page.locator('.check-complete')).toHaveCount(0);
  await dialog.getByRole('button',{name:'Close',exact:true}).click();
  await openCheck(page,'Raise an arm overhead');
  await choose(page,4);
@@ -99,8 +99,8 @@ test('keeps safe side selection, retakes, history, backups and scores',async({pa
  await page.keyboard.press('Escape');
  await openCheck(page,'Lift a knee');
  await dialog.getByRole('button',{name:'Stop: pain or discomfort',exact:true}).click();
- await expect(dialog.getByText('Stopped safely. No score was assigned.')).toBeVisible();
- await dialog.getByRole('button',{name:'Close',exact:true}).click();
+ await expect(page.getByText('Stopped safely. No score was assigned.')).toBeVisible();
+ await expect(dialog).toHaveCount(0);
  await page.reload();
  await map(page);
  await expect(page.locator('.map-summary')).toContainText('2 / 31 positions checked');
@@ -221,13 +221,13 @@ test('tracks athletic straight-knee fold milestones separately from basic mobili
  await expect(page.getByRole('button',{name:'Stretching',exact:true})).toHaveAttribute('aria-pressed','true');
  await page.locator('.hero-action').click();
  const dialog=page.getByRole('dialog');await expect(dialog.getByRole('heading',{name:'Standing forward fold',exact:true})).toBeVisible();
- await choose(page,3);await dialog.getByRole('button',{name:'Save result',exact:true}).click();
+ await choose(page,3);await dialog.getByRole('button',{name:/^Save & (continue|finish)$/}).click();
  await dialog.getByRole('button',{name:'Close',exact:true}).click();
  await map(page);await expect(page.locator('.map-summary')).toContainText('Level 3');
  await page.getByRole('button',{name:'Basic mobility',exact:true}).click();
  await expect(page.locator('.map-summary')).toContainText('0 / 31 positions checked');
  await page.getByRole('button',{name:'Stretching',exact:true}).click();
- await openCheck(page,'Standing forward fold');await choose(page,5);await dialog.getByRole('button',{name:'Save result',exact:true}).click();
+ await openCheck(page,'Standing forward fold');await choose(page,5);await dialog.getByRole('button',{name:/^Save & (continue|finish)$/}).click();
  await dialog.getByRole('button',{name:'Close',exact:true}).click();
  await map(page);await page.getByRole('button',{name:'Check history',exact:true}).click();
  const rows=page.getByRole('table').getByRole('row').filter({hasText:'Standing forward fold'});
@@ -235,4 +235,47 @@ test('tracks athletic straight-knee fold milestones separately from basic mobili
  await page.getByRole('button',{name:'Basic mobility',exact:true}).click();await page.reload();
  await expect(page.getByRole('button',{name:'Basic mobility',exact:true})).toHaveAttribute('aria-pressed','true');
  await page.getByRole('button',{name:'Stretching',exact:true}).click();await map(page);await expect(page.locator('.map-summary')).toContainText('Level 5');
+});
+
+test('skip does not save a selected range and never cycles back within the session',async({page},info)=>{
+ await page.goto(info.project.use.baseURL!);
+ await page.locator('.hero-action').click();
+ for(const [index,exercise] of stretchingExercises.entries()){
+  const dialog=page.getByRole('dialog');
+  await expect(dialog.getByRole('heading',{name:exercise.name.en,exact:true})).toBeVisible();
+  if(index===0){await choose(page,4);await expect(dialog.getByRole('button',{name:'Save & continue',exact:true})).toBeEnabled();}
+  await dialog.getByRole('button',{name:'Skip',exact:true}).click();
+ }
+ await expect(page.getByRole('dialog')).toHaveCount(0);
+ await expect(page.locator('.map-summary')).toContainText('0 / 30 positions checked');
+ await page.getByRole('button',{name:'Check history',exact:true}).click();
+ await expect(page.getByRole('table')).toHaveCount(0);
+ await page.getByRole('navigation').getByRole('button',{name:'Practice',exact:true}).click();
+ await page.locator('.hero-action').click();
+ await expect(page.getByRole('dialog').getByRole('heading',{name:'Standing forward fold',exact:true})).toBeVisible();
+});
+
+test('saving the last exercise finishes without a completion modal and partial-side skip preserves data',async({page},info)=>{
+ await page.goto(info.project.use.baseURL!);
+ await page.locator('.hero-action').click();
+ for(let i=0;i<stretchingExercises.length-1;i++)await page.getByRole('dialog').getByRole('button',{name:'Skip',exact:true}).click();
+ const dialog=page.getByRole('dialog');
+ await expect(dialog.getByRole('heading',{name:'Wrist bend back',exact:true})).toBeVisible();
+ await choose(page,3);await dialog.getByRole('button',{name:'Save & check right side',exact:true}).click();
+ await choose(page,3);await dialog.getByRole('button',{name:'Save & finish',exact:true}).click();
+ await expect(dialog).toHaveCount(0);await expect(page.locator('.check-complete')).toHaveCount(0);
+ await expect(page.locator('.map-summary')).toContainText('2 / 30 positions checked');
+ await page.getByRole('button',{name:'Basic mobility',exact:true}).click();
+ await openCheck(page,'Raise an arm overhead');await choose(page,2);
+ await dialog.getByRole('button',{name:'Save & check right side',exact:true}).click();
+ await expect(dialog.getByRole('button',{name:'Right',exact:true})).toHaveAttribute('aria-pressed','true');
+ await dialog.getByRole('button',{name:'Skip',exact:true}).click();
+ await expect(dialog.getByRole('heading',{name:'Neck nod',exact:true})).toBeVisible();
+ await dialog.getByRole('button',{name:'Close',exact:true}).click();
+ await openCheck(page,'Raise an arm overhead');
+ await expect(dialog.getByRole('button',{name:'Right',exact:true})).toHaveAttribute('aria-pressed','true');
+ await dialog.getByRole('button',{name:'My map',exact:true}).click();
+ await page.getByRole('button',{name:'Check history',exact:true}).click();
+ await expect(page.getByRole('table').getByText('Raise an arm overhead')).toHaveCount(1);
+ await expect(page.getByRole('row').filter({hasText:'Raise an arm overhead'})).toContainText('Left');
 });

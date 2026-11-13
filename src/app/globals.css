@@ -79,8 +79,7 @@ h2,
 h3 {
   font-weight: 400;
 }
-h1,
-.check-complete h3 {
+h1 {
   font-family: Georgia, "Times New Roman", serif;
   font-size: clamp(44px, 4.8vw, 68px);
   letter-spacing: -0.055em;
@@ -1100,27 +1099,12 @@ footer aside button {
   bottom: 0;
   z-index: 3;
 }
-.confirm {
-  display: flex;
-  align-items: start;
-  gap: 10px;
-  font-size: 12px;
-  line-height: 1.7;
-  cursor: pointer;
-}
-.confirm input {
-  width: 17px;
-  height: 17px;
-  margin: 1px 0 0;
-  accent-color: var(--green);
-  flex-shrink: 0;
-}
 .dialog-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  margin-top: 20px;
+  margin-top: 0;
 }
 .dialog-actions .button {
   min-height: 46px;
@@ -1148,52 +1132,6 @@ footer aside button {
   padding: 11px 13px;
   font-size: 12px;
   margin-top: 15px;
-}
-.check-dialog.is-finished {
-  width: 650px;
-  padding-bottom: 15px;
-}
-.check-complete {
-  display: flex;
-  align-items: center;
-  flex-direction: column;
-  text-align: center;
-  padding: 42px 20px 32px;
-}
-.complete-mark {
-  display: grid;
-  place-items: center;
-  width: 75px;
-  height: 75px;
-  border-radius: 50%;
-  background: var(--soft);
-  margin-bottom: 28px;
-}
-.check-complete .eyebrow {
-  font-size: 9px;
-}
-.check-complete h3 {
-  font-size: 40px;
-  margin-top: 15px;
-  max-width: 400px;
-}
-.check-complete p {
-  font-size: 13px;
-  line-height: 1.8;
-  color: var(--muted);
-  max-width: 350px;
-  margin: 20px 0 30px;
-}
-.check-complete .button {
-  min-width: 240px;
-}
-.next-name {
-  font-size: 11px;
-  color: var(--muted);
-  margin: 12px 0 22px;
-}
-.check-complete .text-button {
-  font-size: 12px;
 }
 .toast {
   position: fixed;
@@ -1749,10 +1687,6 @@ footer aside button {
     margin-top: 20px;
     padding: 18px 0;
   }
-  .confirm {
-    font-size: 11px;
-    line-height: 1.7;
-  }
   .dialog-actions {
     margin-top: 15px;
     gap: 16px;
@@ -1776,19 +1710,6 @@ footer aside button {
   .stop-button svg {
     flex-shrink: 0;
     width: 15px;
-  }
-  .check-complete {
-    padding: 32px 10px;
-  }
-  .check-complete h3 {
-    font-size: 34px;
-  }
-  .check-complete p {
-    font-size: 12px;
-  }
-  .check-complete .button {
-    font-size: 12px;
-    min-width: 220px;
   }
   .toast {
     width: max-content;
@@ -2016,5 +1937,40 @@ footer aside button {
   }
   .map-summary > .range-summary b {
     margin-left: 5px;
+  }
+}
+
+.dialog-secondary-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-top: 10px;
+}
+.dialog-secondary-actions .text-button {
+  color: var(--muted);
+  font-size: 11px;
+  padding: 10px 0;
+}
+.skip-button {
+  min-height: 44px;
+  padding: 10px 0;
+}
+.toast {
+  pointer-events: none;
+}
+.toast-in-dialog {
+  top: 12px;
+  bottom: auto;
+}
+@media (max-width: 720px) {
+  .dialog-actions {
+    margin-top: 0;
+  }
+  .dialog-actions .button {
+    max-width: 75%;
+  }
+  .dialog-secondary-actions .text-button {
+    font-size: 10px;
   }
 }

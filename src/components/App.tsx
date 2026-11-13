@@ -80,6 +80,7 @@ export default function App({ initialLang }: { initialLang?: Lang }) {
   const [group, setGroup] = useState<Group | null>(null);
   const [catalogGroup, setCatalogGroup] = useState<Group | "">("");
   const [active, setActive] = useState<Exercise | null>(null);
+  const [remaining, setRemaining] = useState<Exercise[]>([]);
   const [notice, setNotice] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -156,7 +157,29 @@ export default function App({ initialLang }: { initialLang?: Lang }) {
   }
   function open(exercise: Exercise) {
     store.onboard();
+    const index = guidedExercises.findIndex((item) => item.id === exercise.id);
+    setRemaining(
+      [
+        ...guidedExercises.slice(index + 1),
+        ...guidedExercises.slice(0, index),
+      ].filter((item) => !isComplete(item, results)),
+    );
     setActive(exercise);
+  }
+  function showMap() {
+    setActive(null);
+    setRemaining([]);
+    setTab("map");
+    setGroup(active?.group ?? null);
+  }
+  function advance() {
+    const next = remaining[0];
+    if (next) {
+      setRemaining((items) => items.slice(1));
+      setActive(next);
+    } else {
+      showMap();
+    }
   }
   function changeLang(value: Lang) {
     store.setLang(value);
@@ -780,7 +803,10 @@ export default function App({ initialLang }: { initialLang?: Lang }) {
         </main>
       </div>
       {notice && (
-        <div className="toast" role="status">
+        <div
+          className={`toast ${active ? "toast-in-dialog" : ""}`}
+          role="status"
+        >
           <CheckCheck size={18} />
           {notice}
         </div>
@@ -790,20 +816,11 @@ export default function App({ initialLang }: { initialLang?: Lang }) {
           key={active.id}
           exercise={active}
           lang={lang}
-          nextExercise={
-            guidedExercises.find(
-              (exercise) =>
-                exercise.id !== active.id && !isComplete(exercise, results),
-            ) ?? null
-          }
+          nextExercise={remaining[0] ?? null}
           onClose={() => setActive(null)}
           onSaved={notify}
-          onNext={setActive}
-          onMap={() => {
-            setActive(null);
-            setTab("map");
-            setGroup(active.group);
-          }}
+          onNext={advance}
+          onMap={showMap}
         />
       )}
     </div>
@@ -824,7 +841,7 @@ function CheckDialog({
   nextExercise: Exercise | null;
   onClose: () => void;
   onSaved: (message: string) => void;
-  onNext: (exercise: Exercise) => void;
+  onNext: () => void;
   onMap: () => void;
 }) {
   const t = messages[lang];
@@ -842,9 +859,7 @@ function CheckDialog({
       : "left";
   });
   const [level, setLevel] = useState<number | null>(null);
-  const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [finished, setFinished] = useState<"saved" | "stopped" | null>(null);
   const [sideNotice, setSideNotice] = useState(false);
   const dialogRef = useRef<HTMLElement>(null);
   const closeRef = useRef(onClose);
@@ -893,12 +908,8 @@ function CheckDialog({
     };
   }, []);
 
-  useEffect(() => {
-    if (finished) dialogRef.current?.focus();
-  }, [finished]);
-
   async function save(stopped: boolean) {
-    if (busy || (!stopped && (level === null || !confirmed))) return;
+    if (busy || (!stopped && level === null)) return;
     setBusy(true);
     try {
       await useStore.getState().save({
@@ -910,12 +921,13 @@ function CheckDialog({
       if (!stopped && exercise.bilateral && side === "left") {
         setSide("right");
         setLevel(null);
-        setConfirmed(false);
         setSideNotice(true);
         dialogRef.current?.focus();
         dialogRef.current?.scrollTo({ top: 0, behavior: "smooth" });
       } else {
-        setFinished(stopped ? "stopped" : "saved");
+        onSaved(stopped ? t.stopped : t.saved);
+        if (stopped) onClose();
+        else onNext();
       }
     } catch {
       onSaved(t.storageError);
@@ -929,7 +941,7 @@ function CheckDialog({
       <section
         ref={dialogRef}
         tabIndex={-1}
-        className={`check-dialog ${finished ? "is-finished" : ""}`}
+        className="check-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="check-title"
@@ -955,158 +967,124 @@ function CheckDialog({
             <X size={20} />
           </button>
         </div>
-        {finished ? (
-          <div className="check-complete">
-            <span className="complete-mark">
-              {finished === "saved" ? (
-                <Check size={32} strokeWidth={1.4} />
-              ) : (
-                <ShieldCheck size={32} strokeWidth={1.4} />
+        <>
+          {sideNotice && (
+            <p className="side-notice" role="status">
+              <Check size={16} />
+              {t.leftSaved}
+            </p>
+          )}
+          <p className="instruction">{exercise.instruction[lang]}</p>
+          <div className="check-stage">
+            <div className="active-pose">
+              <Pose exercise={exercise} level={level ?? 2} lang={lang} />
+              <span>
+                {level === null ? t.referencePose : `${t.level} ${level + 1}`}
+              </span>
+            </div>
+            <div className="check-controls">
+              {exercise.bilateral && (
+                <div className="side-control">
+                  <span>{t.currentSide}</span>
+                  <div className="segmented side-selector">
+                    {(["left", "right"] as const).map((value) => (
+                      <button
+                        key={value}
+                        aria-pressed={side === value}
+                        className={side === value ? "selected" : ""}
+                        onClick={() => {
+                          setSide(value);
+                          setLevel(null);
+                          setSideNotice(false);
+                        }}
+                      >
+                        {t[value]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
-            </span>
-            <div className="eyebrow">{t.observationSaved}</div>
-            <h3>{finished === "saved" ? t.niceStart : t.listened}</h3>
-            <p>{finished === "saved" ? t.saved : t.stopped}</p>
-            {finished === "saved" && nextExercise ? (
-              <>
-                <button
-                  className="button primary"
-                  onClick={() => onNext(nextExercise)}
-                >
-                  {t.nextMovement}
-                  <ArrowRight size={17} />
-                </button>
-                <span className="next-name">{nextExercise.name[lang]}</span>
-                <button className="text-button" onClick={onMap}>
-                  {t.seeMap}
-                  <ArrowRight size={16} />
-                </button>
-              </>
-            ) : (
-              <button className="button primary" onClick={onMap}>
-                {t.seeMap}
+              <h3>{t.choose}</h3>
+              <p className="range-hint">{t.chooseHint}</p>
+              <div className="level-grid" role="group" aria-label={t.choose}>
+                {exercise.levels[lang].map((label, index) => (
+                  <button
+                    key={index}
+                    aria-pressed={level === index}
+                    aria-label={`${t.level} ${index + 1}: ${label}`}
+                    className={`level-card ${level === index ? "selected" : ""}`}
+                    onClick={() => {
+                      setLevel(index);
+                    }}
+                  >
+                    <div className="range-thumbnail" aria-hidden="true">
+                      <Pose exercise={exercise} level={index} lang={lang} />
+                    </div>
+                    <span>
+                      {index + 1}
+                      {level === index && <Check size={11} />}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div className="selected-range" aria-live="polite">
+                <span>
+                  {level === null ? t.choosePrompt : `${t.level} ${level + 1}`}
+                </span>
+                <p>
+                  {level === null ? t.noTarget : exercise.levels[lang][level]}
+                </p>
+              </div>
+              <details className="technique">
+                <summary>
+                  <ShieldCheck size={16} />
+                  {t.technique}
+                  <ChevronDown size={15} />
+                </summary>
+                <p>{exercise.caution[lang]}</p>
+                <p>{t.safe}</p>
+              </details>
+            </div>
+          </div>
+          <div className="dialog-bottom">
+            <div className="dialog-actions">
+              <button
+                disabled={busy}
+                className="text-button skip-button"
+                onClick={onNext}
+              >
+                {t.skip}
+              </button>
+              <button
+                disabled={level === null || busy}
+                className="button primary"
+                onClick={() => void save(false)}
+              >
+                {busy
+                  ? t.saving
+                  : exercise.bilateral && side === "left"
+                    ? t.saveLeft
+                    : nextExercise
+                      ? t.saveNext
+                      : t.saveFinish}
                 <ArrowRight size={17} />
               </button>
-            )}
+            </div>
+            <div className="dialog-secondary-actions">
+              <button
+                disabled={busy}
+                className="stop-button"
+                onClick={() => void save(true)}
+              >
+                <ShieldCheck size={16} />
+                {t.stop}
+              </button>
+              <button disabled={busy} className="text-button" onClick={onMap}>
+                {t.map}
+              </button>
+            </div>
           </div>
-        ) : (
-          <>
-            {sideNotice && (
-              <p className="side-notice" role="status">
-                <Check size={16} />
-                {t.leftSaved}
-              </p>
-            )}
-            <p className="instruction">{exercise.instruction[lang]}</p>
-            <div className="check-stage">
-              <div className="active-pose">
-                <Pose exercise={exercise} level={level ?? 2} lang={lang} />
-                <span>
-                  {level === null ? t.referencePose : `${t.level} ${level + 1}`}
-                </span>
-              </div>
-              <div className="check-controls">
-                {exercise.bilateral && (
-                  <div className="side-control">
-                    <span>{t.currentSide}</span>
-                    <div className="segmented side-selector">
-                      {(["left", "right"] as const).map((value) => (
-                        <button
-                          key={value}
-                          aria-pressed={side === value}
-                          className={side === value ? "selected" : ""}
-                          onClick={() => {
-                            setSide(value);
-                            setLevel(null);
-                            setConfirmed(false);
-                            setSideNotice(false);
-                          }}
-                        >
-                          {t[value]}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <h3>{t.choose}</h3>
-                <p className="range-hint">{t.chooseHint}</p>
-                <div className="level-grid" role="group" aria-label={t.choose}>
-                  {exercise.levels[lang].map((label, index) => (
-                    <button
-                      key={index}
-                      aria-pressed={level === index}
-                      aria-label={`${t.level} ${index + 1}: ${label}`}
-                      className={`level-card ${level === index ? "selected" : ""}`}
-                      onClick={() => {
-                        setLevel(index);
-                        setConfirmed(false);
-                      }}
-                    >
-                      <div className="range-thumbnail" aria-hidden="true">
-                        <Pose exercise={exercise} level={index} lang={lang} />
-                      </div>
-                      <span>
-                        {index + 1}
-                        {level === index && <Check size={11} />}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                <div className="selected-range" aria-live="polite">
-                  <span>
-                    {level === null
-                      ? t.choosePrompt
-                      : `${t.level} ${level + 1}`}
-                  </span>
-                  <p>
-                    {level === null ? t.noTarget : exercise.levels[lang][level]}
-                  </p>
-                </div>
-                <details className="technique">
-                  <summary>
-                    <ShieldCheck size={16} />
-                    {t.technique}
-                    <ChevronDown size={15} />
-                  </summary>
-                  <p>{exercise.caution[lang]}</p>
-                  <p>{t.safe}</p>
-                </details>
-              </div>
-            </div>
-            <div className="dialog-bottom">
-              <label className="confirm">
-                <input
-                  type="checkbox"
-                  checked={confirmed}
-                  onChange={(event) => setConfirmed(event.target.checked)}
-                />
-                <span>{t.confirm}</span>
-              </label>
-              <div className="dialog-actions">
-                <button
-                  disabled={busy}
-                  className="stop-button"
-                  onClick={() => void save(true)}
-                >
-                  <ShieldCheck size={16} />
-                  {t.stop}
-                </button>
-                <button
-                  disabled={level === null || !confirmed || busy}
-                  className="button primary"
-                  onClick={() => void save(false)}
-                >
-                  {busy
-                    ? t.saving
-                    : exercise.bilateral && side === "left"
-                      ? t.saveLeft
-                      : t.save}
-                  <ArrowRight size={17} />
-                </button>
-              </div>
-            </div>
-          </>
-        )}
+        </>
       </section>
     </div>
   );
