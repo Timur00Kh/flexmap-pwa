@@ -1,14 +1,11 @@
 "use client";
 
-import { Canvas } from "@react-three/fiber";
-import { Html, OrbitControls } from "@react-three/drei";
-import React, { Suspense, useMemo, useState } from "react";
+import { Canvas, type ThreeEvent } from "@react-three/fiber";
+import { Bvh, OrbitControls, useGLTF } from "@react-three/drei";
+import React, { Suspense, useEffect, useMemo, useState } from "react";
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { groupNames, type Group, type Lang } from "../lib/exercises";
-
-// All muscle meshes use the same sphere surface; per-mesh geometry allocation
-// is unnecessary for this fixed procedural figure.
-const muscleGeometry = new THREE.SphereGeometry(1, 32, 24);
 
 type Props = {
   scores: Partial<Record<Group, number>>;
@@ -17,86 +14,121 @@ type Props = {
   lang: Lang;
 };
 
-type Part = { group?: Group; at: [number, number, number]; size: [number, number, number]; rot?: [number, number, number]; color?: string };
-
-const parts: Part[] = [
-  // Neck, skull, ears and jaw
-  { group: "neck" as Group, at: [0, 1.59, 0], size: [.17, .3, .16] },
-  { at: [0, 2.04, 0], size: [.255, .35, .235], color: "#c4c0b8" },
-  { at: [0, 1.84, .025], size: [.19, .1, .19], color: "#bcb8b0" },
-  { at: [-.25, 2.03, 0], size: [.045, .09, .045], color: "#bbb7af" },
-  { at: [.25, 2.03, 0], size: [.045, .09, .045], color: "#bbb7af" },
-  // torso core and paired pectorals
-  { at: [0, 1.03, 0], size: [.48, .69, .28], color: "#c1bdb5" },
-  { group: "chest" as Group, at: [-.245, 1.27, .205], size: [.29, .205, .105], rot: [0, 0, -.06] },
-  { group: "chest" as Group, at: [.245, 1.27, .205], size: [.29, .205, .105], rot: [0, 0, .06] },
-  // back latissimus, trapezius and lumbar muscle
-  { group: "back" as Group, at: [-.25, .99, -.205], size: [.24, .48, .14], rot: [0, 0, -.08] },
-  { group: "back" as Group, at: [.25, .99, -.205], size: [.24, .48, .14], rot: [0, 0, .08] },
-  { group: "back" as Group, at: [0, 1.48, -.17], size: [.32, .3, .12] },
-  { group: "back" as Group, at: [-.12, .43, -.17], size: [.1, .34, .09], rot: [0, 0, -.08] },
-  { group: "back" as Group, at: [.12, .43, -.17], size: [.1, .34, .09], rot: [0, 0, .08] },
-  // abdominal segments and obliques
-  ...[-.135, .135].flatMap(x => [1.01, .79, .57].map((y, row) => ({
-    group: "back" as Group,
-    at: [x, y, .255] as [number, number, number],
-    size: [row === 0 ? .125 : .115, row === 1 ? .115 : .13, .064] as [number, number, number],
-    rot: [0, 0, x < 0 ? -.035 : .035] as [number, number, number],
-  }))),
-  { group: "back" as Group, at: [-.37, .81, .15], size: [.12, .32, .11], rot: [0, 0, -.2] },
-  { group: "back" as Group, at: [.37, .81, .15], size: [.12, .32, .11], rot: [0, 0, .2] },
-  // shoulder caps, arms, forearms and hands
-  { group: "shoulders" as Group, at: [-.54, 1.46, 0], size: [.24, .24, .23] },
-  { group: "shoulders" as Group, at: [.54, 1.46, 0], size: [.24, .24, .23] },
-  { group: "shoulders" as Group, at: [-.68, 1.08, .075], size: [.16, .36, .15], rot: [0, 0, -.12] },
-  { group: "shoulders" as Group, at: [.68, 1.08, .075], size: [.16, .36, .15], rot: [0, 0, .12] },
-  { group: "shoulders" as Group, at: [-.69, 1.08, -.09], size: [.145, .34, .14], rot: [0, 0, -.12] },
-  { group: "shoulders" as Group, at: [.69, 1.08, -.09], size: [.145, .34, .14], rot: [0, 0, .12] },
-  { group: "forearms" as Group, at: [-.78, .61, .015], size: [.13, .36, .12], rot: [0, 0, -.1] },
-  { group: "forearms" as Group, at: [.78, .61, .015], size: [.13, .36, .12], rot: [0, 0, .1] },
-  { at: [-.82, .27, .02], size: [.12, .17, .075], color: "#c4c0b8" },
-  { at: [.82, .27, .02], size: [.12, .17, .075], color: "#c4c0b8" },
-  // pelvis and gluteal muscles
-  { at: [0, .29, 0], size: [.4, .27, .25], color: "#b9b5ad" },
-  { group: "hips" as Group, at: [-.2, .2, -.16], size: [.22, .27, .18] },
-  { group: "hips" as Group, at: [.2, .2, -.16], size: [.22, .27, .18] },
-  // thighs: distinct quadriceps on front, hamstrings behind
-  { group: "quads" as Group, at: [-.21, -.34, .105], size: [.19, .52, .18], rot: [0, 0, -.025] },
-  { group: "quads" as Group, at: [.21, -.34, .105], size: [.19, .52, .18], rot: [0, 0, .025] },
-  { group: "hamstrings" as Group, at: [-.21, -.35, -.12], size: [.17, .5, .15], rot: [0, 0, -.025] },
-  { group: "hamstrings" as Group, at: [.21, -.35, -.12], size: [.17, .5, .15], rot: [0, 0, .025] },
-  // calves and neutral feet
-  { group: "calves" as Group, at: [-.22, -.91, -.025], size: [.145, .38, .16] },
-  { group: "calves" as Group, at: [.22, -.91, -.025], size: [.145, .38, .16] },
-  { at: [-.22, -1.24, .09], size: [.14, .13, .26], color: "#bcb8b0" },
-  { at: [.22, -1.24, .09], size: [.14, .13, .26], color: "#bcb8b0" },
-];
-
-function labelFor(group: Group, lang: Lang) {
-  return groupNames[group][lang];
+// Écorché names each original anatomical structure. These broad assignments
+// connect the visible structures to this app's nine exercise categories;
+// they are not a diagnosis or a precise map of muscle function.
+function groupFor(name: string): Group | undefined {
+  const n = name.toLowerCase();
+  if (/sternocleidomastoid|splenius|sternohyoid|sternothyroid|thyrohyoid|omohyoid/.test(n)) return "neck";
+  if (/deltoid|biceps brachii|triceps brachii|brachialis|coracobrachialis|infraspinatus|teres minor/.test(n)) return "shoulders";
+  if (/pectoralis|serratus anterior/.test(n)) return "chest";
+  if (/trapezius|latissimus|thoracolumbar|erector spinae|rectus abdominis|external oblique|internal oblique|transversus abdominis|linea alba|teres major/.test(n)) return "back";
+  if (/gluteus|tensor fasciae|adductor|pectineus|gracilis/.test(n)) return "hips";
+  if (/biceps femoris|semitendinosus|semimembranosus/.test(n)) return "hamstrings";
+  if (/rectus femoris|vastus|sartorius/.test(n)) return "quads";
+  if (/gastrocnemius|soleus|fibularis|tibialis anterior|calcaneal tendon|extensor digitorum longus|extensor hallucis longus/.test(n)) return "calves";
+  if (/brachioradialis|anconeus|carpi|palmaris|pronator|supinator|pollicis longus|extensor digitorum$|extensor digiti minimi|flexor digitorum superficialis/.test(n)) return "forearms";
 }
 
-function colorFor(group: Group | undefined, score: number | undefined, selected: boolean, hovered: boolean) {
-  if (!group) return "#c2beb6";
-  if (selected || hovered) return "#f8f4ec";
-  if (score == null) return "#aaa69e";
-  return score < 35 ? "#dc655d" : score < 70 ? "#e4bb58" : "#75b78b";
+function colorFor(group: Group | undefined, score: number | undefined, active: boolean) {
+  if (active) return "#f1eee7";
+  if (!group || score == null) return "#9b9f98";
+  return score < 35 ? "#c86d64" : score < 70 ? "#d9b75e" : "#7ba98a";
 }
 
-function Muscle({ part, scores, selected, onSelect, lang }: { part: Part; scores: Props["scores"]; selected: Group | null; onSelect: Props["onSelect"]; lang: Lang }) {
-  const [hover, setHover] = useState(false);
-  const group = part.group;
-  const active = !!group && selected === group;
-  const color = colorFor(group, group ? scores[group] : undefined, active, hover);
-  return <mesh position={part.at} scale={part.size} rotation={part.rot ?? [0, 0, 0]} onPointerOver={e => { if (group) { e.stopPropagation(); setHover(true); document.body.style.cursor = "pointer"; } }} onPointerOut={() => { setHover(false); document.body.style.cursor = "auto"; }} onClick={e => { if (group) { e.stopPropagation(); onSelect(group); } }} castShadow receiveShadow>
-    <primitive object={muscleGeometry} attach="geometry" />
-    <meshStandardMaterial color={color} roughness={.66} metalness={.015} emissive={active || hover ? "#30271e" : "#000000"} emissiveIntensity={.16} />
-    {group && (hover || active) && <Html distanceFactor={7} position={[0, part.size[1] * .72, 0]} center style={{ pointerEvents: "none" }}><div style={{ padding: "5px 9px", borderRadius: 6, background: "rgba(25,26,27,.92)", color: "#fff", font: "12px/1.2 system-ui", whiteSpace: "nowrap", boxShadow: "0 3px 12px #0004" }}>{labelFor(group, lang)}</div></Html>}
-  </mesh>;
-}
+const MODEL_URL = "/flexmap-pwa/models/ecorche.meshopt.glb";
 
-function Figure({ ...props }: Props & { facing: number }) {
-  return <group rotation={[0, props.facing, 0]} position={[0, -.35, 0]}>{parts.map((part, i) => <Muscle key={i} part={part} scores={props.scores} selected={props.selected} onSelect={props.onSelect} lang={props.lang} />)}</group>;
+type FigureProps = Props & { facing: number; hovered: Group | null; setHovered: (group: Group | null) => void; onReady: () => void };
+function Figure({ scores, selected, onSelect, facing, hovered, setHovered, onReady }: FigureProps) {
+  const { scene } = useGLTF(MODEL_URL, false, true);
+  const figure = useMemo(() => {
+    // Bake each source node's transform into floating point attributes before
+    // merging. The original GLB uses quantized integer coordinates and a root
+    // scale; applying matrices to those integers would clamp their values.
+    scene.updateMatrixWorld(true);
+    const buckets = new Map<string, THREE.BufferGeometry[]>();
+    scene.traverse(object => {
+      if (!(object instanceof THREE.Mesh)) return;
+      const source = object.geometry;
+      const position = source.getAttribute("position");
+      if (!position) return;
+      const layer = object.userData.layer;
+      const name = String(object.userData.name || object.name || "");
+      const group = layer === "skeleton" ? undefined : groupFor(name);
+      const bucket = layer === "skeleton" ? "bone" : group ?? "neutral";
+      const geometry = new THREE.BufferGeometry();
+      const values = new Float32Array(position.count * 3);
+      for (let i = 0; i < position.count; i++) {
+        values[i * 3] = position.getX(i);
+        values[i * 3 + 1] = position.getY(i);
+        values[i * 3 + 2] = position.getZ(i);
+      }
+      geometry.setAttribute("position", new THREE.BufferAttribute(values, 3));
+      const normal = source.getAttribute("normal");
+      if (normal) {
+        const normals = new Float32Array(normal.count * 3);
+        for (let i = 0; i < normal.count; i++) {
+          normals[i * 3] = normal.getX(i);
+          normals[i * 3 + 1] = normal.getY(i);
+          normals[i * 3 + 2] = normal.getZ(i);
+        }
+        geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+      }
+      const oldIndex = source.getIndex();
+      const indices = new Uint32Array(oldIndex ? oldIndex.count : position.count);
+      for (let i = 0; i < indices.length; i++) indices[i] = oldIndex ? oldIndex.getX(i) : i;
+      geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+      if (!normal) geometry.computeVertexNormals();
+      geometry.applyMatrix4(object.matrixWorld);
+      const geometries = buckets.get(bucket) ?? [];
+      geometries.push(geometry);
+      buckets.set(bucket, geometries);
+    });
+    const merged = new THREE.Group();
+    buckets.forEach((geometries, bucket) => {
+      const geometry = mergeGeometries(geometries);
+      geometries.forEach(part => part.dispose());
+      if (!geometry) throw new Error(`Could not merge anatomy geometry: ${bucket}`);
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
+      const material = new THREE.MeshStandardMaterial({
+        color: bucket === "bone" ? "#d0c9bd" : "#9b9f98",
+        roughness: .76,
+        side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.userData.layer = bucket === "bone" ? "skeleton" : "muscle";
+      mesh.userData.exerciseGroup = bucket === "bone" || bucket === "neutral" ? undefined : bucket;
+      merged.add(mesh);
+    });
+    return merged;
+  }, [scene]);
+  useEffect(() => {
+    figure.traverse(object => {
+      if (!(object instanceof THREE.Mesh)) return;
+      const group = object.userData.exerciseGroup as Group | undefined;
+      const material = object.material as THREE.MeshStandardMaterial;
+      if (object.userData.layer !== "skeleton") material.color.set(colorFor(group, group ? scores[group] : undefined, !!group && (group === selected || group === hovered)));
+    });
+  }, [figure, scores, selected, hovered]);
+  useEffect(() => { onReady(); }, [onReady]);
+  useEffect(() => () => {
+    figure.traverse(object => {
+      if (object instanceof THREE.Mesh) { object.geometry.dispose(); (object.material as THREE.Material).dispose(); }
+    });
+    document.body.style.cursor = "";
+  }, [figure]);
+  const getGroup = (event: ThreeEvent<PointerEvent | MouseEvent>) => event.object.userData.exerciseGroup as Group | undefined;
+  return <group rotation={[0, facing, 0]} position={[0, -.9, 0]}
+    onPointerMove={event => {
+      const group = getGroup(event);
+      setHovered(group ?? null);
+      document.body.style.cursor = group ? "pointer" : "";
+    }}
+    onPointerOut={() => { setHovered(null); document.body.style.cursor = ""; }}
+    onClick={event => { const group = getGroup(event); if (group) { event.stopPropagation(); onSelect(group); } }}>
+    <Bvh firstHitOnly><primitive object={figure} /></Bvh>
+  </group>;
 }
 
 class WebGLErrorBoundary extends React.Component<{ children: React.ReactNode; lang: Lang }, { failed: boolean }> {
@@ -107,19 +139,25 @@ class WebGLErrorBoundary extends React.Component<{ children: React.ReactNode; la
 
 export default function Anatomy(props: Props) {
   const [back, setBack] = useState(false);
-  const facing = useMemo(() => back ? Math.PI : 0, [back]);
-  return <section aria-label={props.lang === "ru" ? "Интерактивная анатомическая карта мышц" : "Interactive anatomical muscle map"} style={{ position: "relative", width: "100%", height: "100%", minHeight: 420, overflow: "hidden" }}>
+  const [hovered, setHovered] = useState<Group | null>(null);
+  const [ready, setReady] = useState(false);
+  const onReady = React.useCallback(() => setReady(true), []);
+  const current = hovered ?? props.selected;
+  return <section data-model-ready={ready ? "true" : "false"} aria-busy={!ready} aria-label={props.lang === "ru" ? "Интерактивная анатомическая карта мышц" : "Interactive anatomical muscle map"} style={{ position: "relative", width: "100%", height: "100%", minHeight: 420, overflow: "hidden" }}>
+    {!ready && <div role="status" style={{ position: "absolute", zIndex: 1, top: 12, left: 12, color: "#777", font: "12px system-ui" }}>{props.lang === "ru" ? "Загрузка модели…" : "Loading model…"}</div>}
+    <a href="https://github.com/Charleeh/ecorche/blob/main/ATTRIBUTION.md" target="_blank" rel="noreferrer" style={{ position: "absolute", zIndex: 2, left: 8, bottom: 4, color: "#6f6c66", font: "10px system-ui" }}>Écorché · BodyParts3D · Z-Anatomy · CC BY-SA 4.0</a>
+    {current && <div role="status" style={{ position: "absolute", zIndex: 2, top: 12, left: "50%", transform: "translateX(-50%)", padding: "6px 10px", borderRadius: 6, background: "rgba(25,26,27,.9)", color: "white", font: "12px system-ui", whiteSpace: "nowrap", pointerEvents: "none" }}>{groupNames[current][props.lang]}</div>}
     <div style={{ position: "absolute", zIndex: 2, bottom: 12, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 4, padding: 4, borderRadius: 9, background: "rgba(248,247,244,.9)", boxShadow: "0 2px 10px #0001" }}>
       <button type="button" onClick={() => setBack(false)} aria-pressed={!back} style={buttonStyle(!back)}>{props.lang === "ru" ? "Спереди" : "Front"}</button>
       <button type="button" onClick={() => setBack(true)} aria-pressed={back} style={buttonStyle(back)}>{props.lang === "ru" ? "Сзади" : "Back"}</button>
     </div>
-    <WebGLErrorBoundary lang={props.lang}><Canvas aria-label={props.lang === "ru" ? "3D модель человека, вращайте и выбирайте группу мышц" : "3D human model, rotate and select a muscle group"} shadows camera={{ position: [0, 0, 6], fov: 44 }} dpr={[1, 2]} gl={{ antialias: true, alpha: true }}>
+    <WebGLErrorBoundary lang={props.lang}><Canvas aria-label={props.lang === "ru" ? "3D модель человека, вращайте и выбирайте группу мышц" : "3D human model, rotate and select a muscle group"} camera={{ position: [0, 0, 3.3], fov: 38 }} dpr={[1, 1.5]} gl={{ antialias: true, alpha: true }}>
       <color attach="background" args={["#f7f6f3"]} />
-      <ambientLight intensity={1.35} />
-      <directionalLight position={[3, 5, 5]} intensity={2.3} castShadow shadow-mapSize-width={1024} shadow-mapSize-height={1024} />
-      <directionalLight position={[-4, 1, -3]} intensity={1.15} color="#d9e0e8" />
-      <Suspense fallback={null}><Figure {...props} facing={facing} /></Suspense>
-      <OrbitControls makeDefault enablePan={false} minDistance={4.4} maxDistance={8} minPolarAngle={.6} maxPolarAngle={2.5} target={[0, .1, 0]} />
+      <ambientLight intensity={.5} />
+      <directionalLight position={[3, 5, 5]} intensity={2.4} />
+      <directionalLight position={[-4, 1, -3]} intensity={.6} color="#d9e0e8" />
+      <Suspense fallback={null}><Figure {...props} facing={back ? Math.PI : 0} hovered={hovered} setHovered={setHovered} onReady={onReady} /></Suspense>
+      <OrbitControls makeDefault enablePan={false} minDistance={2.4} maxDistance={5} minPolarAngle={.6} maxPolarAngle={2.5} target={[0, 0, 0]} />
     </Canvas></WebGLErrorBoundary>
   </section>;
 }

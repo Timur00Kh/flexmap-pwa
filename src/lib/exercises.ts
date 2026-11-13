@@ -1,4 +1,7 @@
+import { newStretchingExercises } from './sports-exercises';
+
 export type Lang = 'en' | 'ru';
+export type Mode = 'stretching' | 'basic';
 export type Group =
   | 'neck'
   | 'shoulders'
@@ -41,7 +44,7 @@ export const groupNames: Record<Group, Record<Lang, string>> = {
 
 // Angles are illustrative positions for the drawings, not target scores or
 // clinical thresholds. Move only through a comfortable, controlled range.
-export const exercises: Exercise[] = [
+export const basicExercises: Exercise[] = [
   {
     id: 'neck-flexion', name: { en: 'Neck nod', ru: 'Наклон головы вперёд' }, group: 'neck', bilateral: false,
     instruction: { en: 'Sit or stand tall. Gently lower your chin toward your chest, then return to neutral.', ru: 'Сядьте или встаньте прямо. Мягко опустите подбородок к груди и вернитесь в нейтральное положение.' },
@@ -169,3 +172,17 @@ export const exercises: Exercise[] = [
     pose: 'wrist', angles: [0, 15, 30, 45, 60],
   },
 ];
+
+// Keep the original IDs shared across modes so existing observations remain readable.
+const reusedStretchingIds = ['shoulder-flexion', 'quad-knee-bend', 'ankle-dorsiflexion', 'wrist-extension'] as const;
+export const stretchingExercises: Exercise[] = [
+  ...newStretchingExercises,
+  ...reusedStretchingIds.map(id => {
+    const exercise = basicExercises.find(item => item.id === id);
+    if (!exercise) throw new Error(`Missing shared exercise: ${id}`);
+    return exercise;
+  }),
+];
+// Union rather than concatenation prevents duplicate shared IDs in history and exports.
+export const exercises: Exercise[] = [...basicExercises, ...newStretchingExercises];
+export const getExercises = (mode: Mode): Exercise[] => mode === 'basic' ? basicExercises : stretchingExercises;

@@ -48,15 +48,16 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin || !url.href.startsWith(SCOPE_URL.href)) return;
   const isNavigation = request.mode === 'navigate';
   const isAppAsset = ['script', 'style', 'image', 'font', 'worker', 'manifest'].includes(request.destination)
-    || url.pathname.includes('/_next/static/');
+    || url.pathname.includes('/_next/static/')
+    || /\/(?:models|exercises)\//.test(url.pathname);
   if (!isNavigation && !isAppAsset) return;
 
   event.respondWith((async () => {
     const cache = await caches.open(CACHE_VERSION);
-    if (!isNavigation) {
-      const hit = await cache.match(request);
-      if (hit) return hit;
-    }
+    // A version's HTML, artwork and model travel together. Keep its cached
+    // shell until the user accepts the waiting worker, avoiding mixed releases.
+    const cached = await cache.match(request, { ignoreSearch: isNavigation });
+    if (cached) return cached;
 
     try {
       const response = await fetch(request);
@@ -66,7 +67,7 @@ self.addEventListener('fetch', (event) => {
         if (keys.length > MAX_RUNTIME_ENTRIES) {
           const removable = keys.filter((key) => {
             const keyUrl = new URL(key.url);
-            return !SHELL.includes(key.url) && !keyUrl.pathname.includes('/_next/static/');
+            return !SHELL.includes(key.url) && !keyUrl.pathname.includes('/_next/static/') && !/\/(?:models|exercises)\//.test(keyUrl.pathname);
           });
           const excess = keys.length - MAX_RUNTIME_ENTRIES;
           if (excess > 0 && removable.length) {

@@ -39,6 +39,19 @@ for (const fullPath of await walk(staticDir)) {
   if (/\.(?:js|css)$/i.test(fullPath)) precacheFiles.push(path.relative(outputDir, fullPath));
 }
 
+// Local visual assets are part of the offline contract, including the mesh.
+for (const directory of ['models', 'exercises']) {
+  try {
+    for (const fullPath of await walk(path.join(outputDir, directory))) {
+      if (/\.(?:glb|gltf|webp|png|jpg|jpeg|bin)$/i.test(fullPath)) {
+        precacheFiles.push(path.relative(outputDir, fullPath));
+      }
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+}
+
 const uniqueFiles = [...new Set(precacheFiles)].sort();
 const hash = createHash('sha256');
 for (const relativePath of uniqueFiles) {
