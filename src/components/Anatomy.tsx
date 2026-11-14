@@ -3,6 +3,7 @@
 import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Bvh, OrbitControls, useGLTF } from "@react-three/drei";
 import React, { Suspense, useEffect, useMemo, useState } from "react";
+import { Rotate3D } from "lucide-react";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { groupNames, type Group, type Lang } from "../lib/exercises";
@@ -140,30 +141,35 @@ class WebGLErrorBoundary extends React.Component<{ children: React.ReactNode; la
 }
 
 export default function Anatomy(props: Props) {
-  const [back, setBack] = useState(false);
+  const [flipped, setFlipped] = useState(false);
   const [hovered, setHovered] = useState<Group | null>(null);
   const [ready, setReady] = useState(false);
   const onReady = React.useCallback(() => setReady(true), []);
   const current = hovered ?? props.selected;
+  const turnLabel = props.lang === "ru" ? "Развернуть на 180°" : "Turn 180°";
   return <section data-model-ready={ready ? "true" : "false"} aria-busy={!ready} aria-label={props.lang === "ru" ? "Интерактивная анатомическая карта мышц" : "Interactive anatomical muscle map"} style={{ position: "relative", width: "100%", height: "100%", minHeight: 420, overflow: "hidden" }}>
     {!ready && <div role="status" style={{ position: "absolute", zIndex: 1, top: 12, left: 12, color: "#777", font: "12px system-ui" }}>{props.lang === "ru" ? "Загрузка модели…" : "Loading model…"}</div>}
     <a href="https://github.com/Charleeh/ecorche/blob/main/ATTRIBUTION.md" target="_blank" rel="noreferrer" style={{ position: "absolute", zIndex: 2, left: 8, bottom: 4, color: "#6f6c66", font: "10px system-ui" }}>Écorché · BodyParts3D · Z-Anatomy · CC BY-SA 4.0</a>
     {current && <div role="status" style={{ position: "absolute", zIndex: 2, top: 12, left: "50%", transform: "translateX(-50%)", padding: "6px 10px", borderRadius: 6, background: "rgba(25,26,27,.9)", color: "white", font: "12px system-ui", whiteSpace: "nowrap", pointerEvents: "none" }}>{groupNames[current][props.lang]}</div>}
     <div style={{ position: "absolute", zIndex: 2, bottom: 12, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 4, padding: 4, borderRadius: 9, background: "rgba(248,247,244,.9)", boxShadow: "0 2px 10px #0001" }}>
-      <button type="button" onClick={() => setBack(false)} aria-pressed={!back} style={buttonStyle(!back)}>{props.lang === "ru" ? "Спереди" : "Front"}</button>
-      <button type="button" onClick={() => setBack(true)} aria-pressed={back} style={buttonStyle(back)}>{props.lang === "ru" ? "Сзади" : "Back"}</button>
+      <button type="button" onClick={() => setFlipped(value => !value)} disabled={!ready} aria-label={turnLabel} title={turnLabel} style={turnButtonStyle}>
+        <Rotate3D size={17} aria-hidden="true" />
+        <span aria-hidden="true">180°</span>
+      </button>
     </div>
     <WebGLErrorBoundary lang={props.lang}><Canvas frameloop="demand" aria-label={props.lang === "ru" ? "3D модель человека, вращайте и выбирайте группу мышц" : "3D human model, rotate and select a muscle group"} camera={{ position: [0, 0, 3.3], fov: 38 }} dpr={[1, 1.5]} gl={{ antialias: true, alpha: true }}>
       <color attach="background" args={["#f7f6f3"]} />
       <ambientLight intensity={.5} />
       <directionalLight position={[3, 5, 5]} intensity={2.4} />
       <directionalLight position={[-4, 1, -3]} intensity={.6} color="#d9e0e8" />
-      <Suspense fallback={null}><Figure {...props} facing={back ? Math.PI : 0} hovered={hovered} setHovered={setHovered} onReady={onReady} /></Suspense>
+      <Suspense fallback={null}><Figure {...props} facing={flipped ? Math.PI : 0} hovered={hovered} setHovered={setHovered} onReady={onReady} /></Suspense>
       <OrbitControls makeDefault enablePan={false} minDistance={2.4} maxDistance={5} minPolarAngle={.6} maxPolarAngle={2.5} target={[0, 0, 0]} />
     </Canvas></WebGLErrorBoundary>
   </section>;
 }
 
-function buttonStyle(active: boolean): React.CSSProperties {
-  return { border: 0, borderRadius: 6, padding: "7px 12px", background: active ? "#242625" : "transparent", color: active ? "white" : "#52544f", font: "500 12px system-ui", cursor: "pointer" };
-}
+const turnButtonStyle: React.CSSProperties = {
+  display: "inline-flex", alignItems: "center", gap: 7,
+  minHeight: 40, border: 0, borderRadius: 6, padding: "8px 12px",
+  background: "#242625", color: "white", font: "500 12px system-ui", cursor: "pointer",
+};

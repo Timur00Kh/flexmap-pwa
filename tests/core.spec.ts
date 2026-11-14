@@ -149,6 +149,7 @@ test('caches illustrations and real anatomy for offline reloads in both language
   await expect(page.locator('.hero-action')).toBeVisible();
   await expect(page.getByRole('complementary',{name:/App status|Статус приложения/})).toContainText(/Offline|Нет сети/);
   await map(page,lang);
+  await expect(page.getByRole('button',{name:lang==='ru'?'Развернуть на 180°':'Turn 180°',exact:true})).toHaveCount(1);
   await expect(page.locator('.anatomy-wrap canvas')).toBeVisible();
   await page.reload();await expect(page.locator('.hero-action')).toBeVisible();
   await page.locator('.hero-action').click();await expect(page.locator('.active-pose [role="img"]')).toBeVisible();
@@ -169,7 +170,7 @@ test('detects browser language and persists language and theme',async({browser},
  await expect(page.locator('html')).toHaveAttribute('data-theme','dark');await context.close();
 });
 
-test('real muscle selection, back view, orbit and zoom change the 3D view',async({page},info)=>{
+test('real muscle selection, manual orbit, relative half-turn and zoom change the 3D view',async({page},info)=>{
  await page.goto(info.project.use.baseURL!);await map(page);
  const canvas=page.locator('.anatomy-wrap canvas');
  await expect.poll(()=>canvas.evaluate((node:HTMLCanvasElement)=>{const gl=node.getContext('webgl2');return Boolean(gl?.getParameter(gl.CURRENT_PROGRAM))})).toBe(true);
@@ -177,13 +178,18 @@ test('real muscle selection, back view, orbit and zoom change the 3D view',async
  const box=(await canvas.boundingBox())!;
  await canvas.click({position:{x:box.width*.48,y:box.height*.34}});
  await expect(page.locator('.detail-panel h2')).toBeVisible();
+ const turn=page.getByRole('button',{name:'Turn 180°',exact:true});
+ await expect(turn).toHaveCount(1);
+ await expect(page.locator('.anatomy-wrap').getByRole('button',{name:/^(Front|Back)$/})).toHaveCount(0);
  const front=await canvas.screenshot();
- await page.getByRole('button',{name:'Back',exact:true}).click();
- await expect(page.getByRole('button',{name:'Back',exact:true})).toHaveAttribute('aria-pressed','true');
- const back=await canvas.screenshot();expect(front.equals(back)).toBe(false);
  const b=(await canvas.boundingBox())!;await page.mouse.move(b.x+b.width*.6,b.y+b.height*.5);await page.mouse.down();await page.mouse.move(b.x+b.width*.75,b.y+b.height*.5,{steps:12});await page.mouse.up();
- const orbit=await canvas.screenshot();expect(orbit.equals(back)).toBe(false);
- await page.mouse.wheel(0,-150);const zoom=await canvas.screenshot();expect(zoom.equals(orbit)).toBe(false);
+ const orbit=await canvas.screenshot();expect(orbit.equals(front)).toBe(false);
+ // Rotate after dragging the camera: this action must stay relative, not claim
+ // that the current view is necessarily the front or back of the body.
+ await turn.click();
+ const opposite=await canvas.screenshot();expect(opposite.equals(orbit)).toBe(false);
+ const zoomBox=(await canvas.boundingBox())!;await page.mouse.move(zoomBox.x+zoomBox.width*.8,zoomBox.y+zoomBox.height*.5);
+ await page.mouse.wheel(0,-150);const zoom=await canvas.screenshot();expect(zoom.equals(opposite)).toBe(false);
 });
 
 test('ships every illustrated five-frame sheet and the licensed model locally',async({request},info)=>{
